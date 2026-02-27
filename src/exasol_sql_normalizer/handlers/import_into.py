@@ -64,7 +64,8 @@ def normalize_import_into(sql: str) -> str:
 
         # Expect: FROM JDBC AT <connection>
         from_match = re.match(
-            r'FROM\s+JDBC\s+AT\s+(\S+)',
+            # Also capture /*...*/ block comments:
+            r'FROM\s+JDBC\s+AT\s+(/\*[^*]*\*+(?:[^/*][^*]*\*+)*/|\S+)',
             sql[cursor:],
             re.IGNORECASE,
         )

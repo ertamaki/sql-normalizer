@@ -38,7 +38,8 @@ def normalize_import_from(sql: str) -> str:
         cursor = _skip_whitespace(sql, cursor)
 
         match = re.match(
-            r'FROM\s+JDBC\s+AT\s+(\S+)',
+            # also capture /*...*/ block comments
+            r'FROM\s+JDBC\s+AT\s+(/\*[^*]*\*+(?:[^/*][^*]*\*+)*/|\S+)',
             sql[cursor:],
             re.IGNORECASE,
         )
