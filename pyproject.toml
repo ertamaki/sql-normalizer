@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "exasol-sql-normalizer"
 version = "0.1.0"
 description = "Rewrites Exasol-specific SQL into standard SQL for parser compatibility"
-readme = "TRANSLATOR.md"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = []
