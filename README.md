@@ -2,8 +2,6 @@
 
 A lightweight SQL translator that rewrites Exasol-specific syntax into standard SQL that tools like [sqlglot](https://github.com/tobymao/sqlglot) can parse.
 
-Powered by (lots of): ![regex](https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExZTR5YWxsYnRxb29meTk5MzUwaTkyajhzMmQ3emZkaTYzOTFyb3ppeiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/l3vR0EfzAm6eAqRFe/giphy.gif)
-
 ## Why This Exists
 
 Exasol's SQL dialect includes several constructs that no major SQL parser (sqlglot, sqlparse, etc.) handles correctly:
