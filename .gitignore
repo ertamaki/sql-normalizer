@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# Testing
+.pytest_cache/
+
+# IDE / tools
+.claude/
+
+# OS
+.DS_Store
+
+# Internal docs (not for public repo)
+HANDOVER_TRANSLATOR2.md
