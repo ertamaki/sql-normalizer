@@ -1,5 +1,10 @@
 # exasol-sql-normalizer
 
+[![tests](https://img.shields.io/github/actions/workflow/status/ertamaki/sql-normalizer/ci.yml?branch=main&label=tests&style=flat-square)](https://github.com/ertamaki/sql-normalizer/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/ertamaki/sql-normalizer?style=flat-square)](https://github.com/ertamaki/sql-normalizer/blob/main/LICENSE)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://github.com/ertamaki/sql-normalizer)
+![Normalized by Coffee](https://img.shields.io/badge/normalized%20by-%E2%98%95-brown?style=flat-square)
+
 A lightweight SQL translator that rewrites Exasol-specific syntax into standard SQL that tools like [sqlglot](https://github.com/tobymao/sqlglot) can parse.
 
 ## Why This Exists
@@ -217,6 +222,9 @@ The handlers run in a fixed order:
 ```
 
 The only ordering dependency is **3 before 4**: `CONVERT(VARCHAR(10000) UTF8, GROUP_CONCAT(... SEPARATOR '|'))` must have the inner GROUP_CONCAT normalized before CONVERT rewrites the outer call.
+
+
+<img align='right' src="https://media.giphy.com/media/Ll22OhMLAlVDb8UQWe/giphy.gif" width="200">
 
 ## What It Does NOT Handle
 
