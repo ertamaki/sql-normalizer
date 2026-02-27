@@ -19,5 +19,4 @@ build/
 .DS_Store
 
 # Internal docs (not for public repo)
-HANDOVER_TRANSLATOR2.md
 TRANSLATOR.md
