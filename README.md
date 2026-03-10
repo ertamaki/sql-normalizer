@@ -12,6 +12,7 @@ A lightweight SQL translator that rewrites Exasol-specific syntax into standard 
 Exasol's SQL dialect includes several constructs that no major SQL parser (sqlglot, sqlparse, etc.) handles correctly:
 
 - **`IMPORT INTO / IMPORT FROM`** — proprietary remote data import via JDBC connections
+- **`EXPORT ... INTO SCRIPT`** — proprietary data export via UDF scripts
 - **`GROUP_CONCAT ... SEPARATOR`** — aggregate with MySQL-style separator clause
 - **`CONVERT(TYPE CHARSET, expr)`** — cast with charset specifier, reverse argument order
 - **`REGEXP_LIKE` as infix operator** — `column REGEXP_LIKE('pattern')` instead of function-call syntax
@@ -142,7 +143,42 @@ SELECT * FROM (
 
 Since there are no column definitions, the replacement uses `SELECT *`.
 
-### 3. `GROUP_CONCAT ... SEPARATOR`
+### 3. `EXPORT ... INTO SCRIPT` — Data Export via UDF Scripts
+
+Exasol can export query results through UDF scripts with infrastructure config:
+
+```sql
+EXPORT(
+  WITH params AS (SELECT 1 AS x)
+  SELECT * FROM params
+)
+INTO SCRIPT DW_CLOUD_STORAGE_EXTENSION.EXPORT_PATH
+WITH
+  BUCKET_PATH = 'gs://my-bucket/path/'
+  DATA_FORMAT = 'PARQUET'
+;
+```
+
+**Normalized to:**
+
+```sql
+CREATE TABLE DW_CLOUD_STORAGE_EXTENSION.EXPORT_PATH AS
+WITH params AS (SELECT 1 AS x)
+SELECT * FROM params
+```
+
+The `INTO SCRIPT ... WITH key = 'value' ...;` tail is infrastructure config (bucket paths, formats, credentials) — it's stripped entirely. The inner query is preserved as a `CREATE TABLE AS` statement so the data flow remains visible for lineage analysis.
+
+**Handles:**
+- CTEs and complex queries inside the EXPORT body
+- Nested parentheses (subqueries, CAST, IN clauses) in the inner query
+- Multiple key=value pairs in the WITH clause
+- Values containing special characters (paths, credentials)
+- Missing trailing semicolon
+
+**Note on execution order:** This handler runs *first* in the chain, before IMPORT INTO/FROM, because the inner query inside EXPORT may itself contain IMPORT statements that need subsequent normalization.
+
+### 4. `GROUP_CONCAT ... SEPARATOR`
 
 Exasol's `GROUP_CONCAT` supports a `SEPARATOR` clause (MySQL-style syntax):
 
@@ -165,7 +201,7 @@ The `SEPARATOR '...'` clause is stripped. The rest of the function call (DISTINC
 - Both `DISTINCT` and non-`DISTINCT` variants
 - `ORDER BY` clauses before the `SEPARATOR`
 
-### 4. `CONVERT(TYPE CHARSET, expr)` — Exasol's CONVERT/CAST
+### 5. `CONVERT(TYPE CHARSET, expr)` — Exasol's CONVERT/CAST
 
 Exasol's `CONVERT` is functionally equivalent to `CAST`, but with:
 - Reverse argument order: type first, expression second
@@ -189,7 +225,7 @@ CAST(group_concat(col) AS VARCHAR(10000))
 
 **Note on execution order:** This handler runs *after* the GROUP_CONCAT handler, so by the time CONVERT is processed, any inner `GROUP_CONCAT SEPARATOR` has already been normalized.
 
-### 5. `REGEXP_LIKE` Infix Operator
+### 6. `REGEXP_LIKE` Infix Operator
 
 Exasol allows `REGEXP_LIKE` as an infix operator (like `LIKE`):
 
@@ -214,14 +250,17 @@ This rewrites the infix form into standard function-call syntax that parsers exp
 The handlers run in a fixed order:
 
 ```
-1. IMPORT INTO      (most impactful, self-contained)
-2. IMPORT FROM      (same family as #1)
-3. GROUP_CONCAT     (must run before CONVERT — CONVERT often wraps GROUP_CONCAT)
-4. CONVERT          (depends on GROUP_CONCAT being normalized first)
-5. REGEXP_LIKE      (independent, lowest frequency)
+1. EXPORT INTO      (runs first — inner query may contain IMPORT statements)
+2. IMPORT INTO      (self-contained)
+3. IMPORT FROM      (same family as #2)
+4. GROUP_CONCAT     (must run before CONVERT — CONVERT often wraps GROUP_CONCAT)
+5. CONVERT          (depends on GROUP_CONCAT being normalized first)
+6. REGEXP_LIKE      (independent, lowest frequency)
 ```
 
-The only ordering dependency is **3 before 4**: `CONVERT(VARCHAR(10000) UTF8, GROUP_CONCAT(... SEPARATOR '|'))` must have the inner GROUP_CONCAT normalized before CONVERT rewrites the outer call.
+Ordering dependencies:
+- **1 before 2/3**: EXPORT bodies may contain IMPORT statements that need subsequent normalization.
+- **4 before 5**: `CONVERT(VARCHAR(10000) UTF8, GROUP_CONCAT(... SEPARATOR '|'))` must have the inner GROUP_CONCAT normalized before CONVERT rewrites the outer call.
 
 
 <img align='right' src="https://media.giphy.com/media/Ll22OhMLAlVDb8UQWe/giphy.gif" width="200">
