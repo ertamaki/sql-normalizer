@@ -12,9 +12,19 @@ class TestImportFromBasic:
             ")"
         )
         result = normalize_import_from(sql)
-        assert "SELECT * FROM __JDBC_IMPORT__CON_ANALYTICS" in result
+        assert "SELECT * FROM __JDBC_IMPORT__CON_ANALYTICS.remote_table" in result
         assert "IMPORT FROM JDBC" not in result
         assert "STATEMENT" not in result
+
+    def test_schema_qualified_table(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT FROM JDBC AT CON_ANALYTICS\n"
+            "    STATEMENT 'SELECT a FROM dbo.orders'\n"
+            ")"
+        )
+        result = normalize_import_from(sql)
+        assert "SELECT * FROM __JDBC_IMPORT__CON_ANALYTICS.dbo.orders" in result
 
     def test_multiline_statement(self):
         sql = (
@@ -23,13 +33,24 @@ class TestImportFromBasic:
             "    STATEMENT '\n"
             "        SELECT\n"
             "            q1.promoter_name AS [promoter_name]\n"
-            "        FROM [replica_db].[dbo].[orders] AS TDL_T\n"
+            "        FROM [dbo].[orders] AS TDL_T\n"
             "    '\n"
             ")"
         )
         result = normalize_import_from(sql)
-        assert "SELECT * FROM __JDBC_IMPORT__CON_ANALYTICS" in result
+        assert "__JDBC_IMPORT__CON_ANALYTICS.[dbo].[orders]" in result
         assert "IMPORT FROM JDBC" not in result
+
+    def test_three_part_ref_capped(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT FROM JDBC AT CON1\n"
+            "    STATEMENT 'SELECT a FROM [some_db].[dbo].[orders]'\n"
+            ")"
+        )
+        result = normalize_import_from(sql)
+        # 3-part ref capped to last 2 parts
+        assert "__JDBC_IMPORT__CON1.dbo.orders" in result
 
     def test_preserves_surrounding_sql(self):
         sql = (
@@ -38,14 +59,27 @@ class TestImportFromBasic:
             "FROM\n"
             "(\n"
             "    IMPORT FROM JDBC AT CON_ANALYTICS\n"
-            "    STATEMENT 'SELECT 1'\n"
+            "    STATEMENT 'SELECT 1 FROM source_data'\n"
             ")\n"
             "WHERE x = 1"
         )
         result = normalize_import_from(sql)
         assert "promoter_name AS promoter_name" in result
         assert "WHERE x = 1" in result
-        assert "SELECT * FROM __JDBC_IMPORT__CON_ANALYTICS" in result
+        assert "__JDBC_IMPORT__CON_ANALYTICS.source_data" in result
+
+
+class TestImportFromMultiTable:
+    def test_join_in_statement(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT a FROM t1 JOIN t2 ON t1.id = t2.id'\n"
+            ")"
+        )
+        result = normalize_import_from(sql)
+        assert "__JDBC_IMPORT__CONN1.t1" in result
+        assert "__JDBC_IMPORT__CONN1.t2" in result
 
 
 class TestImportFromEdgeCases:
@@ -58,12 +92,32 @@ class TestImportFromEdgeCases:
         sql = (
             "SELECT * FROM (\n"
             "    IMPORT FROM JDBC AT CONN1\n"
-            "    STATEMENT 'SELECT ''hello'' FROM t'\n"
+            "    STATEMENT 'SELECT col1 FROM t WHERE name LIKE ''test%'''\n"
+            ")"
+        )
+        result = normalize_import_from(sql)
+        assert "__JDBC_IMPORT__CONN1.t" in result
+        assert "STATEMENT" not in result
+
+    def test_no_statement_clause_fallback(self):
+        """When STATEMENT is absent, fall back to connection-only phantom table."""
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT FROM JDBC AT CONN1\n"
             ")"
         )
         result = normalize_import_from(sql)
         assert "SELECT * FROM __JDBC_IMPORT__CONN1" in result
-        assert "STATEMENT" not in result
+
+    def test_statement_with_no_from_fallback(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT 1'\n"
+            ")"
+        )
+        result = normalize_import_from(sql)
+        assert "SELECT * FROM __JDBC_IMPORT__CONN1" in result
 
 
 class TestImportFromPassthrough:

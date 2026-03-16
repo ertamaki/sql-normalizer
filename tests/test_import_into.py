@@ -13,9 +13,32 @@ class TestImportIntoBasic:
             ")"
         )
         result = normalize_import_into(sql)
-        assert "SELECT col1, col2 FROM __JDBC_IMPORT__MY_CONNECTION" in result
+        assert "SELECT col1, col2 FROM __JDBC_IMPORT__MY_CONNECTION.remote_table" in result
         assert "IMPORT INTO" not in result
         assert "STATEMENT" not in result
+
+    def test_schema_qualified_table(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (col1 INT, col2 VARCHAR(50))\n"
+            "    FROM JDBC AT MY_CONNECTION\n"
+            "    STATEMENT 'SELECT a, b FROM dbo.my_table'\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        assert "SELECT col1, col2 FROM __JDBC_IMPORT__MY_CONNECTION.dbo.my_table" in result
+
+    def test_three_part_ref_capped_to_two(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (col1 INT)\n"
+            "    FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT a FROM some_db.dbo.orders'\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        # 3-part ref capped to schema.table; db name dropped
+        assert "__JDBC_IMPORT__CONN1.dbo.orders" in result
 
     def test_multiline_column_defs(self):
         sql = (
@@ -34,7 +57,7 @@ class TestImportIntoBasic:
             ")"
         )
         result = normalize_import_into(sql)
-        assert "SELECT row_id, user_permissions FROM __JDBC_IMPORT__CON_PRODUCTION" in result
+        assert "SELECT row_id, user_permissions FROM __JDBC_IMPORT__CON_PRODUCTION.dbo.users" in result
         assert "IMPORT INTO" not in result
 
     def test_quoted_column_names(self):
@@ -46,7 +69,7 @@ class TestImportIntoBasic:
             ')'
         )
         result = normalize_import_into(sql)
-        assert "SELECT RowID, order_id FROM __JDBC_IMPORT__CON_GATEWAY" in result
+        assert "SELECT RowID, order_id FROM __JDBC_IMPORT__CON_GATEWAY.remote" in result
 
     def test_charset_in_column_type(self):
         sql = (
@@ -57,7 +80,45 @@ class TestImportIntoBasic:
             ")"
         )
         result = normalize_import_into(sql)
-        assert "SELECT name, id FROM __JDBC_IMPORT__CONN1" in result
+        assert "SELECT name, id FROM __JDBC_IMPORT__CONN1.t" in result
+
+
+class TestImportIntoMultiTable:
+    def test_join_in_statement(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (a INT, b INT)\n"
+            "    FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT a, b FROM dbo.orders INNER JOIN dbo.items ON orders.id = items.order_id'\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        assert "__JDBC_IMPORT__CONN1.dbo.orders" in result
+        assert "__JDBC_IMPORT__CONN1.dbo.items" in result
+
+    def test_left_join_in_statement(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (a INT)\n"
+            "    FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT a FROM t1 LEFT OUTER JOIN t2 ON t1.id = t2.id'\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        assert "__JDBC_IMPORT__CONN1.t1" in result
+        assert "__JDBC_IMPORT__CONN1.t2" in result
+
+    def test_comma_separated_from(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (a INT)\n"
+            "    FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT a FROM t1, t2 WHERE t1.id = t2.id'\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        assert "__JDBC_IMPORT__CONN1.t1" in result
+        assert "__JDBC_IMPORT__CONN1.t2" in result
 
 
 class TestImportIntoEdgeCases:
@@ -66,31 +127,65 @@ class TestImportIntoEdgeCases:
             "SELECT * FROM (\n"
             "    IMPORT INTO (col1 INT)\n"
             "    FROM JDBC AT CONN1\n"
-            "    STATEMENT 'SELECT ''hello'' FROM t'\n"
+            "    STATEMENT 'SELECT col1 FROM t WHERE name LIKE ''test%'''\n"
             ")"
         )
         result = normalize_import_into(sql)
-        assert "SELECT col1 FROM __JDBC_IMPORT__CONN1" in result
+        assert "__JDBC_IMPORT__CONN1.t" in result
         assert "STATEMENT" not in result
 
     def test_multiple_imports(self):
         sql = (
             "SELECT * FROM (\n"
-            "    IMPORT INTO (a INT) FROM JDBC AT CONN1 STATEMENT 'SELECT 1'\n"
+            "    IMPORT INTO (a INT) FROM JDBC AT CONN1 STATEMENT 'SELECT 1 FROM t1'\n"
             ") t1\n"
             "JOIN (\n"
-            "    IMPORT INTO (b INT) FROM JDBC AT CONN2 STATEMENT 'SELECT 2'\n"
+            "    IMPORT INTO (b INT) FROM JDBC AT CONN2 STATEMENT 'SELECT 2 FROM t2'\n"
             ") t2 ON t1.a = t2.b"
         )
         result = normalize_import_into(sql)
-        assert "SELECT a FROM __JDBC_IMPORT__CONN1" in result
-        assert "SELECT b FROM __JDBC_IMPORT__CONN2" in result
+        assert "__JDBC_IMPORT__CONN1.t1" in result
+        assert "__JDBC_IMPORT__CONN2.t2" in result
         assert "IMPORT INTO" not in result
 
     def test_import_keyword_in_string_literal_not_matched(self):
         sql = "SELECT 'IMPORT INTO something' AS label FROM t"
         result = normalize_import_into(sql)
         assert result == sql
+
+    def test_no_statement_clause_fallback(self):
+        """When STATEMENT is absent, fall back to connection-only phantom table."""
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (col1 INT)\n"
+            "    FROM JDBC AT CONN1\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        assert "SELECT col1 FROM __JDBC_IMPORT__CONN1" in result
+
+    def test_statement_with_no_from_fallback(self):
+        """STATEMENT with no FROM clause falls back to connection-only."""
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (col1 INT)\n"
+            "    FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT 1'\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        assert "SELECT col1 FROM __JDBC_IMPORT__CONN1" in result
+
+    def test_bracket_quoted_table_refs(self):
+        sql = (
+            "SELECT * FROM (\n"
+            "    IMPORT INTO (a INT)\n"
+            "    FROM JDBC AT CONN1\n"
+            "    STATEMENT 'SELECT a FROM [dbo].[orders]'\n"
+            ")"
+        )
+        result = normalize_import_into(sql)
+        assert "__JDBC_IMPORT__CONN1.[dbo].[orders]" in result
 
 
 class TestImportIntoPassthrough:

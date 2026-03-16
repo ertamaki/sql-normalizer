@@ -17,7 +17,8 @@ To:
 
 import re
 
-from .import_into import _is_inside_string, _skip_whitespace, _find_matching_paren
+from ..utils import is_inside_string, skip_whitespace
+from .import_into import _find_matching_paren
 
 
 def normalize_export_into(sql: str) -> str:
@@ -33,13 +34,13 @@ def normalize_export_into(sql: str) -> str:
             result.append(sql[i:])
             break
 
-        if _is_inside_string(sql, match_pos):
+        if is_inside_string(sql, match_pos):
             result.append(sql[i:match_pos + 6])
             i = match_pos + 6
             continue
 
         cursor = match_pos + 6
-        cursor = _skip_whitespace(sql, cursor)
+        cursor = skip_whitespace(sql, cursor)
 
         # Expect opening paren immediately after EXPORT
         if cursor >= length or sql[cursor] != "(":
@@ -60,7 +61,7 @@ def normalize_export_into(sql: str) -> str:
         inner_query = sql[cursor + 1:close_paren].strip()
 
         cursor = close_paren + 1
-        cursor = _skip_whitespace(sql, cursor)
+        cursor = skip_whitespace(sql, cursor)
 
         # Expect: INTO SCRIPT <target>
         into_match = re.match(
@@ -75,7 +76,7 @@ def normalize_export_into(sql: str) -> str:
 
         target_name = into_match.group(1)
         cursor += into_match.end()
-        cursor = _skip_whitespace(sql, cursor)
+        cursor = skip_whitespace(sql, cursor)
 
         # Strip optional WITH ... ; tail
         if upper[cursor:cursor + 4] == "WITH":

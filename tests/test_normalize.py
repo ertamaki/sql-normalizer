@@ -35,9 +35,9 @@ class TestNormalizeChain:
         )
         result = normalize(sql)
 
-        # IMPORT INTO replaced
+        # IMPORT INTO replaced with enriched table references
         assert "IMPORT INTO" not in result
-        assert "SELECT col1, col2 FROM __JDBC_IMPORT__MY_CONNECTION" in result
+        assert "SELECT col1, col2 FROM __JDBC_IMPORT__MY_CONNECTION.dbo.my_table" in result
 
         # GROUP_CONCAT SEPARATOR stripped
         assert "SEPARATOR" not in result
