@@ -71,7 +71,7 @@ CREATE OR REPLACE TABLE DW_TEMP.MY_TABLE AS
 WITH data AS (
     SELECT col1, col2
     FROM (
-        SELECT col1, col2 FROM __JDBC_IMPORT__MY_CONNECTION
+        SELECT col1, col2 FROM __JDBC_IMPORT__MY_CONNECTION.dbo.my_table
     )
 )
 SELECT
@@ -111,11 +111,11 @@ SELECT * FROM (
 
 ```sql
 SELECT * FROM (
-    SELECT order_id, amount, created_at FROM __JDBC_IMPORT__CON_PRODUCTION
+    SELECT order_id, amount, created_at FROM __JDBC_IMPORT__CON_PRODUCTION.orders
 )
 ```
 
-The column names are extracted from the type declaration block. The remote SQL statement is dropped (it runs on a different database and may use a completely different dialect). The connection name is preserved as a synthetic table name (`__JDBC_IMPORT__<connection>`) so downstream tools can track data lineage back to the remote source.
+The column names are extracted from the type declaration block. Table references are extracted from the remote `STATEMENT` SQL and combined with the connection name into a synthetic dotted reference (`__JDBC_IMPORT__<connection>.<schema>.<table>`). This preserves both the remote source identity and the actual table names for downstream lineage tools. When the STATEMENT contains JOINs or comma-separated tables, all referenced tables are included. When no tables can be extracted (dynamic SQL, no `FROM` clause), the output falls back to `__JDBC_IMPORT__<connection>` alone.
 
 **Column name handling:**
 - Quoted names: `"RowID" DECIMAL(10,0)` → `RowID`
@@ -137,11 +137,11 @@ SELECT * FROM (
 
 ```sql
 SELECT * FROM (
-    SELECT * FROM __JDBC_IMPORT__CON_ANALYTICS
+    SELECT * FROM __JDBC_IMPORT__CON_ANALYTICS.summary
 )
 ```
 
-Since there are no column definitions, the replacement uses `SELECT *`.
+Since there are no column definitions, the replacement uses `SELECT *`. Table references from the `STATEMENT` SQL are extracted the same way as for `IMPORT INTO`.
 
 ### 3. `EXPORT ... INTO SCRIPT` — Data Export via UDF Scripts
 
@@ -273,7 +273,7 @@ This normalizer targets the specific constructs that cause parse failures in rea
 - **Exasol UDFs / scripting** — Lua, Python, R, and Java UDFs embedded in SQL are not handled. Strip these with a preprocessor before normalizing.
 - **`MERGE` with Exasol extensions** — Exasol's MERGE syntax has minor deviations from the standard that this normalizer does not address.
 - **`CONNECT BY`** — Exasol's hierarchical query syntax is not rewritten.
-- **Remote STATEMENT content** — the SQL inside `STATEMENT '...'` (which runs on a remote database) is discarded, not translated. It may be T-SQL, PL/SQL, or any other dialect.
+- **Remote STATEMENT content** — table names are extracted from the SQL inside `STATEMENT '...'` via regex, but the full query is not translated or preserved. Complex constructs (CTEs, subqueries, `CROSS APPLY`) may produce extra or missing table references. The remote SQL may be T-SQL, PL/SQL, or any other dialect — only `FROM`/`JOIN` table references are extracted.
 
 ## Testing
 
